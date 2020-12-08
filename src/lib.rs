@@ -7,6 +7,9 @@ extern crate std;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+#[cfg(feature = "serde")]
+extern crate serde;
+
 use core::ops::Range;
 use core::iter::FromIterator;
 use core::fmt::{Debug, Formatter, Result as FmtResult};
@@ -16,9 +19,12 @@ use core::cmp;
 use std::vec::{Vec, IntoIter};
 #[cfg(not(feature = "std"))]
 use alloc::vec::{Vec, IntoIter};
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
 use smallvec::SmallVec;
 
 /// An element of an interval tree.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Element<K, V> {
     /// The range associated with this element.
@@ -35,6 +41,7 @@ impl<K, V> From<(Range<K>, V)> for Element<K, V> {
 }
 
 #[derive(Clone, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 struct Node<K, V>{
     element: Element<K, V>,
     max: K,
@@ -44,6 +51,7 @@ struct Node<K, V>{
 ///
 /// To build it, always use `FromIterator`. This is not very optimized
 /// as it takes `O(log n)` stack (it uses recursion) but runs in `O(n log n)`.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Hash)]
 pub struct IntervalTree<K, V> {
     data: Vec<Node<K, V>>,
@@ -269,6 +277,8 @@ impl<'a, K: Ord, V> Iterator for QueryIter<'a, K, V> {
 mod tests {
     use core::iter;
     use super::*;
+    #[cfg(feature = "serde")]
+    use serde_json;
 
     fn verify(tree: &IntervalTree<u32, u32>, i: u32, expected: &[u32]) {
         let mut v1: Vec<_> = tree.query_point(i).map(|x| x.value).collect();
@@ -279,9 +289,8 @@ mod tests {
         assert_eq!(v2, expected);
     }
 
-    #[test]
-    fn it_works() {
-        let tree: IntervalTree<u32, u32> = [
+    fn mk_test_tree() -> IntervalTree<u32, u32> {
+        [
             (0..3, 1),
             (1..4, 2),
             (2..5, 3),
@@ -290,9 +299,10 @@ mod tests {
             (5..8, 6),
             (4..5, 7),
             (2..7, 8),
-        ].iter().cloned().collect();
+        ].iter().cloned().collect()
+    }
 
-
+    fn verify_test_tree(tree: &IntervalTree<u32, u32>) {
         verify(&tree, 0, &[1]);
         verify(&tree, 1, &[1, 2]);
         verify(&tree, 2, &[1, 2, 3, 8]);
@@ -306,8 +316,24 @@ mod tests {
     }
 
     #[test]
+    fn it_works() {
+        let tree = mk_test_tree();
+        verify_test_tree(&tree);
+    }
+
+    #[test]
     fn empty() {
         let tree: IntervalTree<u32, u32> = iter::empty::<Element<u32, u32>>().collect();
         verify(&tree, 42, &[]);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    /// Check serialisation round-trip.
+    fn ser_deser() {
+        let tree = mk_test_tree();
+        let s_tree = serde_json::to_string(&tree).unwrap();
+        let tree2 = serde_json::from_str(&s_tree).unwrap();
+        verify_test_tree(&tree2);
     }
 }
